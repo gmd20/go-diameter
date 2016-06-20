@@ -115,7 +115,7 @@ func TestBasicDcca(t *testing.T) {
 			var ccr gx.CCR
 			if err := m.Unmarshal(&ccr); err != nil {
 				log.Printf("Failed to parse message from %s: %s\n%s", c.RemoteAddr(), err, m)
-				errChan <- fmt.Errorf("Failed to decod CCR")
+				errChan <- fmt.Errorf("Failed to decode CCR")
 			}
 
 			rsp := m.Answer(diam.Success)
@@ -138,7 +138,7 @@ func TestBasicDcca(t *testing.T) {
 			var cca dcca.CCA
 			if err := m.Unmarshal(&cca); err != nil {
 				log.Printf("Failed to parse message from %s: %s\n%s", c.RemoteAddr(), err, m)
-				errChan <- fmt.Errorf("Failed to decod CCA")
+				errChan <- fmt.Errorf("Failed to decode CCA")
 			}
 			if cca.ResultCode != 2001 {
 				log.Printf("cca.ResultCode = %v\n", cca.ResultCode)
@@ -289,7 +289,7 @@ func TestGxInterface(t *testing.T) {
 			var ccr gx.CCR
 			if err := m.Unmarshal(&ccr); err != nil {
 				log.Printf("Failed to parse message from %s: %s\n%s", c.RemoteAddr(), err, m)
-				errChan <- fmt.Errorf("Failed to decod CCR")
+				errChan <- fmt.Errorf("Failed to decode CCR")
 			}
 
 			rsp := m.Answer(diam.Success)
@@ -332,7 +332,7 @@ func TestGxInterface(t *testing.T) {
 			var cca gx.CCA
 			if err := m.Unmarshal(&cca); err != nil {
 				log.Printf("Failed to parse message from %s: %s\n%s", c.RemoteAddr(), err, m)
-				errChan <- fmt.Errorf("Failed to decod CCA")
+				errChan <- fmt.Errorf("Failed to decode CCA")
 			}
 
 			if cca.ResultCode != 2001 {
@@ -372,7 +372,140 @@ func TestGxInterface(t *testing.T) {
 }
 
 func TestGxRAR(t *testing.T) {
+	err := dict.Default.Load(bytes.NewReader([]byte(gx.GxXML)))
+	if err != nil {
+		t.Fatal(err)
+	}
 
+	tcpdump := &TcpDump{}
+	tcpdump.Start("GxRAR")
+	defer tcpdump.Stop()
+
+	originStateId := uint32(time.Now().Unix())
+
+	cmux, c := AppClient("192.168.4.231:3868", "peer-gx-client-rar.localdomain.net", "localdomain.net",
+		originStateId, gx.GX_APPLICATION_ID)
+	// smux, s := server(":3868", "peer2.localdomain2", "localdomain2")
+	smux, s := AppClient("192.168.4.231:3868", "peer-gx-server-rar.localdomain2.net", "localdomain2.net",
+		originStateId, gx.GX_APPLICATION_ID)
+	defer c.Close()
+	defer s.Close()
+	time.Sleep(2 * time.Second) // wait for freeDiameter peer state
+
+	sendRAR := func(c diam.Conn, requestType int32) (n int64, err error) {
+		// Build CCR
+		// m := diam.NewRequest(272, 4, nil)
+		m := diam.NewMessage(258, 0xc0, gx.GX_APPLICATION_ID, 0, 0, nil)
+		var rar gx.RAR
+		// Add AVPs
+		rar.SessionId = "peer-gx-server-rar.localdomain.net;25020007;1798;192.168.4.231"
+		rar.AuthApplicationId = gx.GX_APPLICATION_ID
+		rar.OriginHost = "peer-gx-server-rar.localdomain2.net"
+		rar.OriginRealm = "localdomain2.net"
+		rar.DestinationRealm = "localdomain.net"
+		rar.DestinationHost = "peer-gx-client-rar.localdomain.net"
+		rar.OriginStateId = originStateId
+
+		rar.EventTrigger = []int32{1, 2}
+		if requestType == 0 {
+			rar.ChargingRuleInstall = &gx.ChargingRuleInstall{
+				ChargingRuleName: "100",
+			}
+		} else {
+			rar.ChargingRuleRemove = &gx.ChargingRuleRemove{
+				ChargingRuleName: "100",
+			}
+		}
+		rar.QoSInformation = &gx.QoSInformation{
+			MaxRequestedBandwidthUL: 32000,
+			MaxRequestedBandwidthDL: 32000,
+		}
+		rar.RevalidationTime = &time.Time{}
+		*rar.RevalidationTime = time.Now().Add(30 * time.Second)
+
+		// rar.RouteRecord = []string{"peer1.localdomain.net"}
+		err = m.Marshal(&rar)
+		if err != nil {
+			log.Print(err)
+			return 0, err
+		}
+		return m.WriteTo(c)
+	}
+	handleRAR := func(errChan chan error, okChan chan struct{}) diam.HandlerFunc {
+		return func(c diam.Conn, m *diam.Message) {
+			var rar gx.RAR
+			if err := m.Unmarshal(&rar); err != nil {
+				log.Printf("Failed to parse message from %s: %s\n%s", c.RemoteAddr(), err, m)
+				errChan <- fmt.Errorf("Failed to decode RAR")
+			}
+
+			rsp := m.Answer(diam.Success)
+			var raa gx.RAA
+			raa.SessionId = rar.SessionId
+			raa.AuthApplicationId = gx.GX_APPLICATION_ID
+			raa.OriginHost = "peer-gx-client-rar.localdomain2.net"
+			raa.OriginRealm = "localdomain.net"
+			if rar.ChargingRuleInstall != nil {
+				raa.ResultCode = 2001
+			} else {
+				raa.ResultCode = 2002
+				raa.FailedAVP = []byte{0x00, 0x00, 0x03, 0xf8, 0xc0, 0x00, 0x00, 0x2c, 0x00, 0x00, 0x28, 0xaf, 0x00, 0x00, 0x02, 0x04, 0xc0, 0x00, 0x00, 0x10, 0x00, 0x00, 0x28, 0xaf, 0x00, 0x00, 0x7d, 0x00, 0x00, 0x00, 0x02, 0x03, 0xc0, 0x00, 0x00, 0x10, 0x00, 0x00, 0x28, 0xaf, 0x00, 0x00, 0x7d, 0x00}
+			}
+			raa.OriginStateId = originStateId
+			ancAddr := net.ParseIP("192.168.4.85")
+			raa.AccessNetworkChargingAddress = &ancAddr
+			raa.AccessNetworkChargingIdentifierGx = &gx.AccessNetworkChargingIdentifierGx{
+				AccessNetworkChargingIdentifierValue: "\x73\x00\x03\x40",
+			}
+
+			rsp.Marshal(&raa)
+			rsp.WriteTo(c)
+			// c.Close()
+		}
+	}
+	handleRAA := func(errChan chan error, okChan chan struct{}) diam.HandlerFunc {
+		return func(c diam.Conn, m *diam.Message) {
+			var raa gx.RAA
+			if err := m.Unmarshal(&raa); err != nil {
+				log.Printf("Failed to parse message from %s: %s\n%s", c.RemoteAddr(), err, m)
+				errChan <- fmt.Errorf("Failed to decode RAA")
+			}
+
+			if raa.ResultCode == 2001 {
+			} else if raa.ResultCode == 2002 {
+				close(okChan) // test case pass
+			} else {
+				log.Printf("raa.ResultCode = %v\n", raa.ResultCode)
+				errChan <- fmt.Errorf("Unexpected raa.ResultCode")
+			}
+		}
+	}
+
+	errChan := make(chan error, 1)
+	okChan := make(chan struct{})
+	cmux.Handle("RAR", handleRAR(errChan, okChan))
+	smux.Handle("RAA", handleRAA(errChan, okChan))
+
+	_, err = sendRAR(s, 0)
+	if err != nil {
+		t.Fatal("Failed to send RAR", err)
+	}
+	time.Sleep(1 * time.Second)
+	_, err = sendRAR(s, 1)
+	if err != nil {
+		t.Fatal("Failed to send RAR", err)
+	}
+	select {
+	case <-okChan: // test case pass
+	case err := <-errChan:
+		t.Fatal(err)
+	case err := <-cmux.ErrorReports():
+		t.Fatal(err)
+	case err := <-smux.ErrorReports():
+		t.Fatal(err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("Timed out: no RAR or RAR received")
+	}
 }
 
 // Route-Record and Proxy-Info
