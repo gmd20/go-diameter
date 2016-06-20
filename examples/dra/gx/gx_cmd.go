@@ -176,7 +176,7 @@ type CCA struct {
 	ErrorReportingHost  string               `avp:"Error-Reporting-Host,omitempty"` // DiameterIdentity
 	FailedAVP           []byte               `avp:"Failed-AVP,omitempty"`           // diamtype.Grouped
 	ProxyInfo           []ProxyInfo          `avp:"Proxy-Info,omitempty"`
-	RouteRecord         []string             `avp:"Route-Record,omitempty"` // DiameterIdentity	SessionId                     string                          `avp:"Session-Id"`
+	RouteRecord         []string             `avp:"Route-Record,omitempty"` // DiameterIdentity
 }
 
 type RAR struct {
@@ -187,13 +187,13 @@ type RAR struct {
 	DestinationRealm    string               `avp:"Destination-Realm"`
 	DestinationHost     string               `avp:"Destination-Host"`
 	OriginStateId       uint32               `avp:"Origin-State-Id,omitempty"`
-	EventTrigger        *int32               `avp:"Event-Trigger"` // enum
+	EventTrigger        []int32              `avp:"Event-Trigger"` // enum
 	ChargingRuleRemove  *ChargingRuleRemove  `avp:"Charging-Rule-Remove"`
 	ChargingRuleInstall *ChargingRuleInstall `avp:"Charging-Rule-Install"`
 	QoSInformation      *QoSInformation      `avp:"QoS-Information,omitempty"`
 	RevalidationTime    *time.Time           `avp:"Revalidation-Time,omitempty"`
 	ProxyInfo           []ProxyInfo          `avp:"Proxy-Info,omitempty"`
-	RouteRecord         []string             `avp:"Route-Record,omitempty"` // DiameterIdentity	SessionId                     string                          `avp:"Session-Id"`
+	RouteRecord         []string             `avp:"Route-Record,omitempty"` // DiameterIdentity
 }
 
 type RAA struct {
@@ -211,5 +211,5 @@ type RAA struct {
 	ErrorReportingHost                string                             `avp:"Error-Reporting-Host,omitempty"` // DiameterIdentity
 	FailedAVP                         []byte                             `avp:"Failed-AVP,omitempty"`           // diamtype.Grouped
 	ProxyInfo                         []ProxyInfo                        `avp:"Proxy-Info,omitempty"`
-	RouteRecord                       []string                           `avp:"Route-Record,omitempty"` // DiameterIdentity	SessionId                     string                          `avp:"Session-Id"`
+	RouteRecord                       []string                           `avp:"Route-Record,omitempty"` // DiameterIdentity
 }
