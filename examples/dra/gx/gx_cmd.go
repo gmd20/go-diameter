@@ -113,7 +113,7 @@ type CCR struct {
 
 type ChargingRuleRemove struct {
 	ChargingRuleName     string `avp:"Charging-Rule-Name,omitempty"`
-	ChargingRuleBaseName string `avp:"Charging-Rule-Base-Name.omitempty"`
+	ChargingRuleBaseName string `avp:"Charging-Rule-Base-Name,omitempty"`
 }
 
 type Flows struct {
