@@ -67,7 +67,7 @@ func (s *Session) SendRequest() {
 	defer s.mu.Unlock()
 	if s.ccrPending == true {
 		// log.Println("CCR pending, session_id=", s.id)
-		return
+		// return
 	}
 	s.ccrPending = true
 
@@ -328,7 +328,7 @@ func (s *Statistics) Report() (num int, rnum int, avg int, max int, min int) {
 
 	if rnum+500 < int(reqPerSec) {
 		log.Println("The real req/s it too small, it can not reach the target req/s, may be you need to increase the number of sessions and re-run the test.")
-		os.Exit(0)
+		// os.Exit(0)
 	}
 
 	return
