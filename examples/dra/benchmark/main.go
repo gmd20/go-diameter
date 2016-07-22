@@ -49,6 +49,7 @@ type Session struct {
 	cid             int   // client id
 	seq             uint32
 	connection      diam.Conn
+	ccrPending      bool
 }
 
 func NewSession(c diam.Conn, numUpdates int, id int, cid int) *Session {
@@ -64,6 +65,12 @@ func NewSession(c diam.Conn, numUpdates int, id int, cid int) *Session {
 func (s *Session) SendRequest() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.ccrPending == true {
+		// log.Println("CCR pending, session_id=", s.id)
+		return
+	}
+	s.ccrPending = true
+
 	seq := atomic.AddUint32(&s.seq, 1) - 1
 
 	var ccr dcca.CCR
@@ -213,9 +220,13 @@ func (s *Session) SendRequest() {
 }
 
 func (s *Session) HandleCCA(c diam.Conn, m *diam.Message) {
+
 	var cca dcca.CCA
 	if err := m.Unmarshal(&cca); err == nil {
+		s.mu.Lock()
+		s.ccrPending = false
 		s.destinationHost = cca.OriginHost
+		s.mu.Unlock()
 		t1 := cca.CCSubSessionId
 		if t1 != 0 {
 			t2 := uint64(time.Now().UnixNano())
@@ -234,6 +245,9 @@ func (s *Session) HandleCCA(c diam.Conn, m *diam.Message) {
 				cca.SessionId, cca.ResultCode)
 		}
 	} else {
+		s.mu.Lock()
+		s.ccrPending = false
+		s.mu.Unlock()
 		log.Printf("Failed to parse message from %s: %s\n%s", c.RemoteAddr(), err, m)
 	}
 	SendRequests()
