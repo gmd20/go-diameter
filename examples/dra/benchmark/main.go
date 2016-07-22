@@ -325,6 +325,12 @@ func (s *Statistics) Report() (num int, rnum int, avg int, max int, min int) {
 	s.TotalTime = 0
 	s.MaxTime = 0
 	s.MinTime = 1000 * 1000 * 1000 * 1000
+
+	if rnum+500 < int(reqPerSec) {
+		log.Println("The real req/s it too small, it can not reach the target req/s, may be you need to increase the number of sessions and re-run the test.")
+		os.Exit(0)
+	}
+
 	return
 }
 
