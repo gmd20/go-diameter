@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math/rand"
 	"os"
 	"runtime/pprof"
 	"sync"
@@ -14,17 +15,40 @@ import (
 	"dra"
 	"dra/dcca"
 	"github.com/fiorix/go-diameter/diam"
+	"github.com/fiorix/go-diameter/diam/datatype"
 	"github.com/fiorix/go-diameter/diam/sm"
 )
 
+func init() {
+	rand.Seed(time.Now().UnixNano())
+}
+
+func RandomSubscriptionId() string {
+	t := rand.Intn(4)
+	switch t {
+	case 0:
+		return "86138" + fmt.Sprintf("%09d", rand.Int63n(1000000000))
+	case 1:
+		return "86188" + fmt.Sprintf("%09d", rand.Int63n(1000000000))
+	case 2:
+		return "86159" + fmt.Sprintf("%09d", rand.Int63n(1000000000))
+	case 3:
+		return "86170" + fmt.Sprintf("%09d", rand.Int63n(1000000000))
+	default:
+		return "86189" + fmt.Sprintf("%09d", rand.Int63n(1000000000))
+	}
+}
+
 type Session struct {
-	mu         sync.Mutex
-	numUpdates uint32
-	id         int   // session id
-	sid        int64 // sesion id unix timestamp
-	cid        int   // client id
-	seq        uint32
-	connection diam.Conn
+	mu              sync.Mutex
+	numUpdates      uint32
+	subscriptionId  string
+	destinationHost string
+	id              int   // session id
+	sid             int64 // sesion id unix timestamp
+	cid             int   // client id
+	seq             uint32
+	connection      diam.Conn
 }
 
 func NewSession(c diam.Conn, numUpdates int, id int, cid int) *Session {
@@ -47,16 +71,18 @@ func (s *Session) SendRequest() {
 
 	var et time.Time = time.Now()
 	if seq == 0 { // Initial
+		s.subscriptionId = RandomSubscriptionId()
+		s.destinationHost = ""
 		s.sid = et.UnixNano()
 		ccr.OriginHost = fmt.Sprintf("peer%d.%s", s.cid, clientRealm)
-		ccr.SessionId = fmt.Sprintf("%s;%d;%d;%d", ccr.OriginHost, s.id, s.cid, s.sid)
+		ccr.SessionId = fmt.Sprintf("%s;%d;%d", ccr.OriginHost, s.id, s.sid)
 		ccr.OriginRealm = clientRealm
 		ccr.DestinationRealm = serverRealm
 		ccr.AuthApplicationId = 4
 		ccr.ServiceContextId = "32251@3gpp.org"
 		ccr.CCRequestType = 1 // Initial = 1, Update =2, Term =3, event=4
 		ccr.CCRequestNumber = seq
-		ccr.UserName = "13800138000@test.test.com"
+		ccr.UserName = s.subscriptionId + "@test.test.com"
 		ccr.CCSubSessionId = uint64(et.UnixNano()) // statistic time
 		ccr.OriginStateId = originStateId
 		ccr.EventTimestamp = &et
@@ -64,25 +90,28 @@ func (s *Session) SendRequest() {
 		ccr.SubscriptionId = []dcca.SubscriptionId{
 			{
 				SubscriptionIdType: 0, //END_USER_E164
-				SubscriptionIdData: "13800138000",
+				SubscriptionIdData: s.subscriptionId,
 			},
 			{
 				SubscriptionIdType: 1, //END_USER_IMSI
-				SubscriptionIdData: "234113800138000",
+				SubscriptionIdData: "2341" + s.subscriptionId,
 			},
 		}
 		ccr.MultipleServicesIndicator = 1
 		ccr.SPI = []dcca.ServiceParameterInfo{{1, "401"}, {2, "401"}}
 	} else if seq < s.numUpdates { // Update
 		ccr.OriginHost = fmt.Sprintf("peer%d.%s", s.cid, clientRealm)
-		ccr.SessionId = fmt.Sprintf("%s;%d;%d;%d", ccr.OriginHost, s.id, s.cid, s.sid)
+		ccr.SessionId = fmt.Sprintf("%s;%d;%d", ccr.OriginHost, s.id, s.sid)
 		ccr.OriginRealm = clientRealm
 		ccr.DestinationRealm = serverRealm
 		ccr.AuthApplicationId = 4
 		ccr.ServiceContextId = "32251@3gpp.org"
 		ccr.CCRequestType = 2 // Initial = 1, Update =2, Term =3, event=4
 		ccr.CCRequestNumber = seq
-		ccr.UserName = "13800138000@test.test.com"
+		if len(s.destinationHost) > 0 {
+			ccr.DestinationHost = s.destinationHost
+		}
+		ccr.UserName = s.subscriptionId + "@test.test.com"
 		ccr.CCSubSessionId = uint64(et.UnixNano()) // statistic time
 		ccr.OriginStateId = originStateId
 		ccr.EventTimestamp = &et
@@ -90,11 +119,11 @@ func (s *Session) SendRequest() {
 		ccr.SubscriptionId = []dcca.SubscriptionId{
 			{
 				SubscriptionIdType: 0, //END_USER_E164
-				SubscriptionIdData: "13800138000",
+				SubscriptionIdData: s.subscriptionId,
 			},
 			{
 				SubscriptionIdType: 1, //END_USER_IMSI
-				SubscriptionIdData: "234113800138000",
+				SubscriptionIdData: "2341" + s.subscriptionId,
 			},
 		}
 		ccr.MSCC = []dcca.MultipleServicesCreditControl{
@@ -118,14 +147,17 @@ func (s *Session) SendRequest() {
 		ccr.SPI = []dcca.ServiceParameterInfo{{1, "401"}, {2, "401"}}
 	} else if seq == s.numUpdates { // Term
 		ccr.OriginHost = fmt.Sprintf("peer%d.%s", s.cid, clientRealm)
-		ccr.SessionId = fmt.Sprintf("%s;%d;%d;%d", ccr.OriginHost, s.id, s.cid, s.sid)
+		ccr.SessionId = fmt.Sprintf("%s;%d;%d", ccr.OriginHost, s.id, s.sid)
 		ccr.OriginRealm = clientRealm
 		ccr.DestinationRealm = serverRealm
 		ccr.AuthApplicationId = 4
 		ccr.ServiceContextId = "32251@3gpp.org"
 		ccr.CCRequestType = 3 // Initial = 1, Update =2, Term =3, event=4
 		ccr.CCRequestNumber = seq
-		ccr.UserName = "13800138000@test.test.com"
+		if len(s.destinationHost) > 0 {
+			ccr.DestinationHost = s.destinationHost
+		}
+		ccr.UserName = s.subscriptionId + "@test.test.com"
 		ccr.CCSubSessionId = uint64(et.UnixNano()) // statistic time
 		ccr.OriginStateId = originStateId
 		ccr.EventTimestamp = &et
@@ -133,11 +165,11 @@ func (s *Session) SendRequest() {
 		ccr.SubscriptionId = []dcca.SubscriptionId{
 			{
 				SubscriptionIdType: 0, //END_USER_E164
-				SubscriptionIdData: "13800138000",
+				SubscriptionIdData: s.subscriptionId,
 			},
 			{
 				SubscriptionIdType: 1, //END_USER_IMSI
-				SubscriptionIdData: "234113800138000",
+				SubscriptionIdData: "2341" + s.subscriptionId,
 			},
 		}
 		ccr.TerminationCause = 4
@@ -180,6 +212,33 @@ func (s *Session) SendRequest() {
 	atomic.AddUint64(&stat.NumCCR, 1)
 }
 
+func (s *Session) HandleCCA(c diam.Conn, m *diam.Message) {
+	var cca dcca.CCA
+	if err := m.Unmarshal(&cca); err == nil {
+		s.destinationHost = cca.OriginHost
+		t1 := cca.CCSubSessionId
+		if t1 != 0 {
+			t2 := uint64(time.Now().UnixNano())
+			duration := (t2 - t1) / (1000 * 1000)
+
+			atomic.AddUint64(&stat.NumCCA, 1)
+			atomic.AddUint64(&stat.TotalTime, duration)
+			if duration > stat.MaxTime {
+				atomic.StoreUint64(&stat.MaxTime, duration)
+			}
+			if duration < stat.MinTime {
+				atomic.StoreUint64(&stat.MinTime, duration)
+			}
+		} else {
+			log.Printf("CCA error, CCSubSessionId doesn't exist. session_id=%v, cca.ResultCode=%d",
+				cca.SessionId, cca.ResultCode)
+		}
+	} else {
+		log.Printf("Failed to parse message from %s: %s\n%s", c.RemoteAddr(), err, m)
+	}
+	SendRequests()
+}
+
 func handleCCR(server_id int) diam.HandlerFunc {
 	sid := server_id
 	return func(c diam.Conn, m *diam.Message) {
@@ -213,32 +272,6 @@ func handleCCR(server_id int) diam.HandlerFunc {
 		}
 		rsp.WriteTo(c)
 	}
-}
-
-func handleCCA(c diam.Conn, m *diam.Message) {
-	var cca dcca.CCA
-	if err := m.Unmarshal(&cca); err == nil {
-		t1 := cca.CCSubSessionId
-		if t1 != 0 {
-			t2 := uint64(time.Now().UnixNano())
-			duration := (t2 - t1) / (1000 * 1000)
-
-			atomic.AddUint64(&stat.NumCCA, 1)
-			atomic.AddUint64(&stat.TotalTime, duration)
-			if duration > stat.MaxTime {
-				atomic.StoreUint64(&stat.MaxTime, duration)
-			}
-			if duration < stat.MinTime {
-				atomic.StoreUint64(&stat.MinTime, duration)
-			}
-		} else {
-			log.Printf("CCA error, CCSubSessionId doesn't exist. session_id=%v, cca.ResultCode=%d",
-				cca.SessionId, cca.ResultCode)
-		}
-	} else {
-		log.Printf("Failed to parse message from %s: %s\n%s", c.RemoteAddr(), err, m)
-	}
-	SendRequests()
 }
 
 type Statistics struct {
@@ -337,6 +370,29 @@ func benchmark(connections, sessions, updates int) {
 	clients := make([]diam.Conn, connections)
 	servers := make([]diam.Conn, connections)
 	sm := make([]*sm.StateMachine, connections*2)
+	Sessions = make([]*Session, sessions)
+
+	handleCCA := func(clientId int) diam.HandlerFunc {
+		return func(c diam.Conn, m *diam.Message) {
+			var sid int
+			var clientId2 int
+			var sid_unix_timestamp int64
+
+			if m.AVP[0].Code == 263 {
+				sessionIdAvp := m.AVP[0].Data.(datatype.UTF8String)
+				n, err := fmt.Sscanf(string(sessionIdAvp), "peer%d."+clientRealm+";%d;%d", &clientId2, &sid, &sid_unix_timestamp)
+				if err != nil || n != 3 || sid < 0 || sid >= sessions || Sessions[sid] == nil {
+					log.Println("Failed to extract sessionId from dcca CCA. ", m)
+					return
+				}
+			} else {
+				log.Println("Failed to extract SessionId from dcca CCA. ", m)
+				return
+			}
+
+			Sessions[sid].HandleCCA(c, m)
+		}
+	}
 
 	for i := 0; i < connections; i++ {
 		clientHost := fmt.Sprintf("peer%d.%s", firstPeerId+i, clientRealm)
@@ -350,11 +406,10 @@ func benchmark(connections, sessions, updates int) {
 
 		clients[i] = c
 		servers[i] = s
-		cmux.HandleFunc("CCA", handleCCA)
+		cmux.HandleFunc("CCA", handleCCA(i))
 		smux.Handle("CCR", handleCCR(i))
 	}
 
-	Sessions = make([]*Session, sessions)
 	for i := 0; i < sessions; i++ {
 		s := NewSession(clients[i%connections], updates, i, firstPeerId+i%connections)
 		Sessions[i] = s
