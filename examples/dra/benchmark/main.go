@@ -426,8 +426,8 @@ func benchmark(connections, sessions, updates int) {
 
 		clients[i] = c
 		servers[i] = s
-		cmux.HandleFunc("CCA", handleCCA(i))
-		smux.Handle("CCR", handleCCR(i))
+		cmux.HandleFunc("CCA", handleCCA(firstPeerId+i))
+		smux.Handle("CCR", handleCCR(firstPeerId+i))
 	}
 
 	for i := 0; i < sessions; i++ {
